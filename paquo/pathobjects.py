@@ -163,7 +163,7 @@ class _PathROIObject:
         self,
         java_object: PathROIObject,
         *,
-        update_callback: Callable[[PathROIObjectType], None] | None = None
+        update_callback: Callable[..., None] | None = None
     ) -> None:
         """instantiate using classmethods: `from_shapely`, `from_geojson`"""
         self.java_object = java_object
@@ -238,7 +238,7 @@ class _PathROIObject:
             pc = pc if pc is None else pc.java_object
         self.java_object.setPathClass(pc, probability)
         if self._update_callback:
-            self._update_callback(self)  # type: ignore[arg-type]
+            self._update_callback(self, update_hierarchy=False)
 
     @property
     def locked(self) -> bool:
@@ -249,7 +249,7 @@ class _PathROIObject:
     def locked(self: PathROIObjectType, value: bool) -> None:
         self.java_object.setLocked(value)
         if self._update_callback:
-            self._update_callback(self)  # type: ignore[arg-type]
+            self._update_callback(self, update_hierarchy=False)
 
     @property
     def is_editable(self) -> bool:
@@ -275,7 +275,7 @@ class _PathROIObject:
             name = String(name)
         self.java_object.setName(name)
         if self._update_callback:
-            self._update_callback(self)  # type: ignore[arg-type]
+            self._update_callback(self, update_hierarchy=False)
 
     @property
     def parent(self: PathROIObjectType) -> PathROIObjectType | None:
@@ -302,7 +302,7 @@ class _PathROIObject:
     @cached_property
     def measurements(self):
         if self._update_callback:
-            cb = partial(self._update_callback, self)
+            cb = partial(self._update_callback, self, update_hierarchy=False)
         else:
             cb = None
         return _MeasurementList(

@@ -133,14 +133,29 @@ class PathObjectProxy(Sequence[PathROIObjectType], MutableSet[PathROIObjectType]
         return self
 
     if compatibility.supports_newer_addobject_and_pathclass:
-        def add(self, x: PathROIObjectType) -> None:
-            """adds a new path object to the proxy"""
+        def add(self, x: PathROIObjectType, *, update_hierarchy: bool = True) -> None:
+            """adds a new path object to the proxy
+
+            Parameters
+            ----------
+            x:
+                the path object to add
+            update_hierarchy:
+                if False, the path object is not (re-)inserted into the
+                hierarchy. This is used when properties of a path object
+                that is already part of the hierarchy change, which don't
+                affect its position in the hierarchy (path_class, name, ...).
+                Re-inserting would detach it from its parent (see #119).
+            """
             if self._mask:
                 raise OSError("cannot modify view")
             if self._readonly:
                 raise OSError("project in readonly mode")
             if not isinstance(x, self._paquo_cls):
                 raise TypeError(f"requires {self._paquo_cls.__name__} instance got {x.__class__.__name__}")
+            if not update_hierarchy:
+                self._notify_changed(x)
+                return
             try:
                 if self._hierarchy.autoflush:
                     self._java_hierarchy.addObject(x.java_object, True)
@@ -150,14 +165,20 @@ class PathObjectProxy(Sequence[PathROIObjectType], MutableSet[PathROIObjectType]
                 self._list_invalidate_cache()
 
     else:
-        def add(self, x: PathROIObjectType) -> None:
-            """adds a new path object to the proxy"""
+        def add(self, x: PathROIObjectType, *, update_hierarchy: bool = True) -> None:
+            """adds a new path object to the proxy
+
+            see the docstring above for the `update_hierarchy` parameter
+            """
             if self._mask:
                 raise OSError("cannot modify view")
             if self._readonly:
                 raise OSError("project in readonly mode")
             if not isinstance(x, self._paquo_cls):
                 raise TypeError(f"requires {self._paquo_cls.__name__} instance got {x.__class__.__name__}")
+            if not update_hierarchy:
+                self._notify_changed(x)
+                return
             try:
                 if self._hierarchy.autoflush:
                     self._java_hierarchy.addPathObject(x.java_object)
@@ -165,6 +186,14 @@ class PathObjectProxy(Sequence[PathROIObjectType], MutableSet[PathROIObjectType]
                     self._java_hierarchy.addPathObjectWithoutUpdate(x.java_object)
             finally:
                 self._list_invalidate_cache()
+
+    def _notify_changed(self, x: PathROIObjectType) -> None:
+        """notify the hierarchy that a path object changed in place"""
+        if self._hierarchy.autoflush:
+            self._java_hierarchy.fireObjectsChangedEvent(
+                self._java_hierarchy, [x.java_object]
+            )
+        # without autoflush, `QuPathPathObjectHierarchy.flush` fires the event
 
     def discard(self, x: PathROIObjectType) -> None:
         """discard a path object from the proxy"""

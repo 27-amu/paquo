@@ -449,3 +449,69 @@ TEST_ANNOTATION_OBJECT_TYPE_TILE = {
 def test_load_object_type_tile_geojson(empty_hierarchy):
     geojson = deepcopy(TEST_ANNOTATION_OBJECT_TYPE_TILE)["features"]
     empty_hierarchy.load_geojson(geojson)
+
+
+def _hierarchy_with_nested_detections(n=3):
+    """annotation 'parent' with n detections resolved as its children"""
+    h = QuPathPathObjectHierarchy()
+    parent = h.add_annotation(roi=shapely.geometry.box(0, 0, 100, 100))
+    parent.name = "parent"
+    for i in range(n):
+        x = 10 + 20 * i
+        h.add_detection(roi=shapely.geometry.box(x, 10, x + 10, 20))
+    h.java_object.resolveHierarchy()
+    return h
+
+
+def _parents(h):
+    return [(d.level, d.parent.name if d.parent else None) for d in h.detections]
+
+
+@pytest.mark.parametrize(
+    "modify",
+    [
+        pytest.param(lambda d: d.update_path_class(QuPathPathClass("Tumor")), id="path_class"),
+        pytest.param(lambda d: setattr(d, "name", "renamed"), id="name"),
+        pytest.param(lambda d: setattr(d, "locked", True), id="locked"),
+        pytest.param(lambda d: d.measurements.__setitem__("area", 1.0), id="measurements"),
+    ],
+)
+def test_inplace_update_keeps_hierarchy(modify):
+    # https://github.com/Bayer-Group/paquo/issues/119
+    h = _hierarchy_with_nested_detections()
+    assert _parents(h) == [(2, "parent")] * 3
+
+    for detection in h.detections:
+        modify(detection)
+
+    assert len(h.detections) == 3
+    assert _parents(h) == [(2, "parent")] * 3
+
+
+def test_inplace_update_keeps_hierarchy_no_autoflush():
+    h = _hierarchy_with_nested_detections()
+    with h.no_autoflush():
+        for detection in h.detections:
+            detection.update_path_class(QuPathPathClass("Tumor"))
+    assert _parents(h) == [(2, "parent")] * 3
+    assert all(d.path_class.name == "Tumor" for d in h.detections)
+
+
+def test_inplace_update_keeps_hierarchy_and_marks_changed(project_with_annotations):
+    with project_with_annotations as qp:
+        entry = qp.images[0]
+        h = entry.hierarchy
+        parent = h.add_annotation(roi=shapely.geometry.box(0, 0, 100, 100))
+        parent.name = "parent"
+        h.add_detection(roi=shapely.geometry.box(10, 10, 20, 20))
+        h.java_object.resolveHierarchy()
+        entry.save()
+        assert not entry.is_changed()
+
+        detection, = h.detections
+        detection.update_path_class(QuPathPathClass("Tumor"))
+        assert entry.is_changed()
+
+        detection, = h.detections
+        assert detection.parent.name == "parent"
+        assert detection.path_class.name == "Tumor"
